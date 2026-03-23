@@ -1,0 +1,67 @@
+---
+- name: Configure OpenShift GitOps AI Platform
+  hosts: localhost
+  connection: local
+  vars:
+    ai_namespace: ai-inference
+    monitoring_namespace: monitoring
+
+  tasks:
+
+    - name: Create ai-inference namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ ai_namespace }}"
+            labels:
+              managed-by: ansible
+              environment: production
+
+    - name: Apply resource quota to ai-inference namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ResourceQuota
+          metadata:
+            name: ai-platform-quota
+            namespace: "{{ ai_namespace }}"
+          spec:
+            hard:
+              requests.cpu: "2"
+              requests.memory: 4Gi
+              limits.cpu: "4"
+              limits.memory: 8Gi
+
+    - name: Create developer RBAC role binding
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: developer-access
+            namespace: "{{ ai_namespace }}"
+          subjects:
+            - kind: ServiceAccount
+              name: default
+              namespace: "{{ ai_namespace }}"
+          roleRef:
+            kind: ClusterRole
+            name: edit
+            apiGroup: rbac.authorization.k8s.io
+
+    - name: Verify namespaces managed by Ansible
+      kubernetes.core.k8s_info:
+        kind: Namespace
+        label_selectors:
+          - managed-by=ansible
+      register: ansible_namespaces
+
+    - name: Print results
+      debug:
+        msg: "Ansible successfully manages namespace: {{ item.metadata.name }}"
+      loop: "{{ ansible_namespaces.resources }}"
