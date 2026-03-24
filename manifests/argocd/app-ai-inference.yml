@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ai-inference
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Afkir-Mohamed/openshift-gitops-ai-platform
+    targetRevision: HEAD
+    path: manifests/apps/ai-inference
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ai-inference
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
