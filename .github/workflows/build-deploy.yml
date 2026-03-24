@@ -1,0 +1,108 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y podman
+
+      - name: Build image with Podman
+        run: |
+          podman build -t my-app:${{ github.sha }} \
+            -f app/Containerfile app/
+
+      - name: Login to GitHub Container Registry
+        run: |
+          echo ${{ secrets.GITHUB_TOKEN }} | \
+          podman login ghcr.io \
+            -u ${{ github.actor }} \
+            --password-stdin
+
+      - name: Push image
+        run: |
+          podman tag my-app:${{ github.sha }} \
+            ghcr.io/${{ github.repository_owner }}/my-app:${{ github.sha }}
+          podman push \
+            ghcr.io/${{ github.repository_owner }}/my-app:${{ github.sha }}
+
+      - name: Create app manifest if not exists
+        run: |
+          mkdir -p manifests/apps/my-app
+          if [ ! -f manifests/apps/my-app/deployment.yml ]; then
+            cat > manifests/apps/my-app/deployment.yml << 'MANIFEST'
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: my-app
+            namespace: ai-inference
+            labels:
+              app: my-app
+              managed-by: argocd
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: my-app
+            template:
+              metadata:
+                labels:
+                  app: my-app
+              spec:
+                containers:
+                  - name: my-app
+                    image: ghcr.io/PLACEHOLDER/my-app:latest
+                    ports:
+                      - containerPort: 8080
+                    resources:
+                      requests:
+                        memory: "64Mi"
+                        cpu: "50m"
+                      limits:
+                        memory: "128Mi"
+                        cpu: "100m"
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: my-app-service
+            namespace: ai-inference
+          spec:
+            selector:
+              app: my-app
+            ports:
+              - port: 8080
+                targetPort: 8080
+          MANIFEST
+          fi
+
+      - name: Update image tag in manifest
+        run: |
+          sed -i "s|image: ghcr.io/.*/my-app:.*|image: ghcr.io/${{ github.repository_owner }}/my-app:${{ github.sha }}|" \
+            manifests/apps/my-app/deployment.yml
+
+      - name: Commit and push manifest update
+        run: |
+          git config user.email "ci@github.com"
+          git config user.name "CI Bot"
+          git add manifests/apps/my-app/deployment.yml
+          git diff --staged --quiet || \
+            git commit -m "ci: update my-app image to ${{ github.sha }}"
+          git push
