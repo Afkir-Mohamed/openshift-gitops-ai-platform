@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  namespace: ai-inference
+  labels:
+    app: my-app
+    managed-by: argocd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+        - name: my-app
+          image: ghcr.io/afkir-mohamed/my-app:2daca8f87a93b114e08079dd00dfef1988fe015b
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-app-service
+  namespace: ai-inference
+spec:
+  selector:
+    app: my-app
+  ports:
+    - port: 8080
+      targetPort: 8080
